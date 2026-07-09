@@ -91,7 +91,7 @@ endef
         train-gd-inner train-baseline-inner train-erf-inner smoke-inner \
         shell ls-runs eval-inner stats-inner eval-all-inner \
         erf-layers-inner erf-output-inner vis-pred-inner pipeline-inner \
-        smoke agd verify-gd check
+        smoke agd verify-gd check git-push-init
 
 # ──────────────────────────────────────────
 # Docker 操作 (ホストから)
@@ -316,3 +316,14 @@ verify-gd:
 ## ローカル検証を全部 (smoke → agd → verify-gd)
 check: smoke agd verify-gd
 	@printf "\n✅ ローカル CPU 検証 完了\n"
+
+# ──────────────────────────────────────────
+# Git リモート接続 (新規リポジトリへの初回 push を一発で)
+# ──────────────────────────────────────────
+
+## 新規リモートに origin を繋いで push する。空リポジトリを作ってから URL を渡す。
+##   例: make git-push-init URL=git@github.com:<you>/uniconvnet-constraint-gauss.git
+git-push-init:
+	@[ -n "$(URL)" ] || { printf "\n[ERROR] URL=<repo-url> を指定してください\n  例: make git-push-init URL=git@github.com:you/uniconvnet-constraint-gauss.git\n\n"; exit 1; }
+	git remote add origin "$(URL)" 2>/dev/null || git remote set-url origin "$(URL)"
+	git push -u origin main
