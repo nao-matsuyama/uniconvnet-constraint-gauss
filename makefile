@@ -335,8 +335,9 @@ check: smoke agd verify-gd
 # ──────────────────────────────────────────
 
 ## 新規リモートに origin を繋いで push する。空リポジトリを作ってから URL を渡す。
-##   例: make git-push-init URL=git@github.com:<you>/uniconvnet-constraint-gauss.git
+##   このプロジェクトは HTTPS 同期(Git Credential Manager)。SSH URL(git@...)は publickey で弾かれる。
+##   例: make git-push-init URL=https://github.com/<you>/uniconvnet-constraint-gauss.git
 git-push-init:
-	@[ -n "$(URL)" ] || { printf "\n[ERROR] URL=<repo-url> を指定してください\n  例: make git-push-init URL=git@github.com:you/uniconvnet-constraint-gauss.git\n\n"; exit 1; }
+	@[ -n "$(URL)" ] || { printf "\n[ERROR] URL=<repo-url> を指定してください (HTTPS 推奨)\n  例: make git-push-init URL=https://github.com/you/uniconvnet-constraint-gauss.git\n\n"; exit 1; }
 	git remote add origin "$(URL)" 2>/dev/null || git remote set-url origin "$(URL)"
 	git push -u origin main
