@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.pyc
+.env
+.venv/
+venv/
+
+# Model weights (large binary, not tracked)
+*.pth
+
+# Experiment outputs (generated - not tracked)
+experiments/
+erf_results/
+pred_results/
+erf.png
+
+# Data
+/data/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs
+logs/
+
+# Docker
+docker-compose.override.yml
+
+# IDE / Claude
+.claude/
+
+# 通知 Webhook URL(秘密。scripts/.notify_webhook.example を雛形にコピーして使う)
+scripts/.notify_webhook

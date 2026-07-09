@@ -1,0 +1,19 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    volumes:
+      - .:/workspace
+      - ../scinti_segmentation:/workspace/scinti_segmentation
+    environment:
+      - PYTHONUNBUFFERED=1
+    shm_size: '2gb'
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command: ["tail", "-f", "/dev/null"]

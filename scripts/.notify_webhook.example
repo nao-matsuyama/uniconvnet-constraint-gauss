@@ -1,0 +1,9 @@
+# このファイルを scripts/.notify_webhook にコピーし、Webhook URL を1行だけ書く。
+# scripts/.notify_webhook は .gitignore 済み(=push されない)。
+#
+# Discord の URL 取得手順:
+#   サーバー設定 → 連携サービス → ウェブフック → 新しいウェブフック
+#   → チャンネルを選び「ウェブフックURLをコピー」
+#
+# 例(この行のようにURLだけを書く。'#' で始まる行は無視される):
+# https://discord.com/api/webhooks/1234567890/abcdefg-XXXXXXXXXXXX

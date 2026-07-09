@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="680" height="420" viewBox="0 0 680 420" role="img">
+<title>機構Cの差し替え箇所</title>
+<desc>UniConvNet Block の中で ConvMod(RFA) の a1/a2/a3 の depthwise だけを SpectralMixtureDW に差し替え、他の構成要素は変更しないことを示す構造図</desc>
+<style>
+text{font-family:'Segoe UI','Hiragino Sans','Yu Gothic','Noto Sans JP',Meiryo,sans-serif}
+.t{font-size:14px;font-weight:400;fill:#2C2C2A}
+.ts{font-size:12px;font-weight:400;fill:#5F5E5A}
+.th{font-size:14px;font-weight:500;fill:#2C2C2A}
+.c-gray rect{fill:#F1EFE8;stroke:#888780}
+.c-gray .th,.c-gray .t{fill:#444441}
+.c-gray .ts{fill:#5F5E5A}
+.c-coral rect{fill:#FAECE7;stroke:#D85A30}
+.c-coral .th{fill:#712B13}
+.c-coral .ts{fill:#993C1D}
+.box{fill:#FFFFFF;stroke:#B4B2A9}
+</style>
+<rect x="0" y="0" width="680" height="420" fill="#FFFFFF"/>
+<g class="c-gray"><rect x="40" y="16" width="14" height="14" rx="3" stroke-width="0.5"/></g><text class="ts" x="62" y="23" dominant-baseline="central">変更なし(元のまま)</text>
+<g class="c-coral"><rect x="220" y="16" width="14" height="14" rx="3" stroke-width="0.5"/></g><text class="ts" x="242" y="23" dominant-baseline="central">機構Cで差し替え</text>
+<g class="c-gray"><rect x="40" y="50" width="600" height="330" rx="20" stroke-width="0.5"/><text class="th" x="56" y="72" dominant-baseline="central">UniConvNet Block × 24(構造は不変)</text></g>
+<rect class="box" x="60" y="90" width="560" height="185" rx="12" stroke-width="0.5"/>
+<text class="th" x="76" y="108" dominant-baseline="central">ConvMod (RFA)</text>
+<text class="t" x="160" y="130" text-anchor="middle" dominant-baseline="central">a1(7×7)</text>
+<g class="c-gray"><rect x="80" y="142" width="160" height="32" rx="6" stroke-width="0.5"/><text class="ts" x="160" y="158" text-anchor="middle" dominant-baseline="central">Conv 1×1 + GELU</text></g>
+<g class="c-coral"><rect x="80" y="184" width="160" height="52" rx="8" stroke-width="0.5"/><text class="th" x="160" y="202" text-anchor="middle" dominant-baseline="central">depthwise 7×7</text><text class="ts" x="160" y="222" text-anchor="middle" dominant-baseline="central">SpectralMixtureDW へ</text></g>
+<text class="t" x="340" y="130" text-anchor="middle" dominant-baseline="central">a2(9×9)</text>
+<g class="c-gray"><rect x="260" y="142" width="160" height="32" rx="6" stroke-width="0.5"/><text class="ts" x="340" y="158" text-anchor="middle" dominant-baseline="central">Conv 1×1 + GELU</text></g>
+<g class="c-coral"><rect x="260" y="184" width="160" height="52" rx="8" stroke-width="0.5"/><text class="th" x="340" y="202" text-anchor="middle" dominant-baseline="central">depthwise 9×9</text><text class="ts" x="340" y="222" text-anchor="middle" dominant-baseline="central">SpectralMixtureDW へ</text></g>
+<text class="t" x="520" y="130" text-anchor="middle" dominant-baseline="central">a3(11×11)</text>
+<g class="c-gray"><rect x="440" y="142" width="160" height="32" rx="6" stroke-width="0.5"/><text class="ts" x="520" y="158" text-anchor="middle" dominant-baseline="central">Conv 1×1 + GELU</text></g>
+<g class="c-coral"><rect x="440" y="184" width="160" height="52" rx="8" stroke-width="0.5"/><text class="th" x="520" y="202" text-anchor="middle" dominant-baseline="central">depthwise 11×11</text><text class="ts" x="520" y="222" text-anchor="middle" dominant-baseline="central">SpectralMixtureDW へ</text></g>
+<text class="ts" x="340" y="258" text-anchor="middle" dominant-baseline="central">24 block × 3 枝 = 72 個を差し替え(state_dict キーは不変)</text>
+<g class="c-gray"><rect x="60" y="295" width="270" height="44" rx="8" stroke-width="0.5"/><text class="th" x="195" y="317" text-anchor="middle" dominant-baseline="central">DCNv3(変更なし)</text></g>
+<g class="c-gray"><rect x="350" y="295" width="270" height="44" rx="8" stroke-width="0.5"/><text class="th" x="485" y="317" text-anchor="middle" dominant-baseline="central">MLP(変更なし)</text></g>
+</svg>

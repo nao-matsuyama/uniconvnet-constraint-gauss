@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="680" height="440" viewBox="0 0 680 440" role="img">
+<title>SpectralMixtureDW の2枝構造</title>
+<desc>入力が local 枝(事前学習転移の depthwise)と spectral 枝(新規の多ガウス混合)に分かれ、spectral 側は γ ゲートを通って加算合流する図</desc>
+<style>
+text{font-family:'Segoe UI','Hiragino Sans','Yu Gothic','Noto Sans JP',Meiryo,sans-serif}
+.t{font-size:14px;font-weight:400;fill:#2C2C2A}
+.ts{font-size:12px;font-weight:400;fill:#5F5E5A}
+.th{font-size:14px;font-weight:500;fill:#2C2C2A}
+.c-teal rect{fill:#E1F5EE;stroke:#1D9E75}
+.c-teal .th{fill:#085041}
+.c-teal .ts{fill:#0F6E56}
+.c-coral rect{fill:#FAECE7;stroke:#D85A30}
+.c-coral .th{fill:#712B13}
+.c-coral .ts{fill:#993C1D}
+.box{fill:#FFFFFF;stroke:#B4B2A9}
+.arr{stroke:#5F5E5A;fill:none;stroke-width:1.5}
+</style>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#5F5E5A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<rect x="0" y="0" width="680" height="440" fill="#FFFFFF"/>
+<g class="c-teal"><rect x="40" y="16" width="14" height="14" rx="3" stroke-width="0.5"/></g><text class="ts" x="62" y="23" dominant-baseline="central">事前学習を転移(元と同形・同キー)</text>
+<g class="c-coral"><rect x="320" y="16" width="14" height="14" rx="3" stroke-width="0.5"/></g><text class="ts" x="342" y="23" dominant-baseline="central">新規(strict=False で吸収)</text>
+<rect class="box" x="270" y="44" width="140" height="40" rx="8" stroke-width="0.5"/><text class="t" x="340" y="64" text-anchor="middle" dominant-baseline="central">入力 x (C,H,W)</text>
+<line x1="320" y1="84" x2="192" y2="124" class="arr" marker-end="url(#arrow)"/>
+<line x1="360" y1="84" x2="498" y2="124" class="arr" marker-end="url(#arrow)"/>
+<g class="c-teal"><rect x="70" y="130" width="220" height="56" rx="8" stroke-width="0.5"/><text class="th" x="180" y="148" text-anchor="middle" dominant-baseline="central">local 枝: depthwise k×k</text><text class="ts" x="180" y="168" text-anchor="middle" dominant-baseline="central">weight / bias を同キー転移</text></g>
+<g class="c-coral"><rect x="390" y="130" width="240" height="56" rx="8" stroke-width="0.5"/><text class="th" x="510" y="148" text-anchor="middle" dominant-baseline="central">spectral 枝: 多ガウス混合</text><text class="ts" x="510" y="168" text-anchor="middle" dominant-baseline="central">σ (C,K) と混合重み w (C,K)</text></g>
+<line x1="510" y1="186" x2="510" y2="222" class="arr" marker-end="url(#arrow)"/>
+<g class="c-coral"><rect x="435" y="226" width="150" height="40" rx="8" stroke-width="0.5"/><text class="th" x="510" y="246" text-anchor="middle" dominant-baseline="central">× γ(init = 0)</text></g>
+<path d="M180 186 L180 310 L320 310" class="arr" marker-end="url(#arrow)"/>
+<path d="M510 266 L510 310 L360 310" class="arr" marker-end="url(#arrow)"/>
+<circle class="box" cx="340" cy="310" r="16" stroke-width="0.5"/><text class="th" x="340" y="310" text-anchor="middle" dominant-baseline="central">+</text>
+<line x1="340" y1="326" x2="340" y2="356" class="arr" marker-end="url(#arrow)"/>
+<rect class="box" x="270" y="360" width="140" height="40" rx="8" stroke-width="0.5"/><text class="t" x="340" y="380" text-anchor="middle" dominant-baseline="central">出力 out</text>
+</svg>

@@ -1,0 +1,13 @@
+.git
+__pycache__
+venv/
+env/
+*.pth
+*.pt
+*.weights
+*.h5
+data/
+dataset/
+datasets/
+logs/
+scinti_segmentation/

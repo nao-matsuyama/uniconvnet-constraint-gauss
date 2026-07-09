@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="680" height="330" viewBox="0 0 680 330" role="img">
+<title>多ガウス混合のフーリエ双対</title>
+<desc>周波数領域のKガウス混合包絡と、その双対である空間領域の集約ガウスカーネル(鋭い芯+広い裾)を並べた直感図。周波数側には帯域切り出し位置も示す</desc>
+<style>
+text{font-family:'Segoe UI','Hiragino Sans','Yu Gothic','Noto Sans JP',Meiryo,sans-serif}
+.ts{font-size:12px;font-weight:400;fill:#5F5E5A}
+.th{font-size:14px;font-weight:500;fill:#2C2C2A}
+.arr{stroke:#5F5E5A;fill:none;stroke-width:1.5}
+</style>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#5F5E5A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<rect x="0" y="0" width="680" height="330" fill="#FFFFFF"/>
+<line x1="40" y1="24" x2="70" y2="24" stroke="#F0997B" stroke-width="1.5" stroke-dasharray="4 3"/><text class="ts" x="78" y="24" dominant-baseline="central">成分ガウス(K本)</text>
+<line x1="230" y1="24" x2="260" y2="24" stroke="#D85A30" stroke-width="2.5"/><text class="ts" x="268" y="24" dominant-baseline="central">混合(重み付き和)</text>
+<line x1="430" y1="24" x2="460" y2="24" stroke="#888780" stroke-width="1" stroke-dasharray="5 4"/><text class="ts" x="468" y="24" dominant-baseline="central">帯域切り出し η</text>
+<rect x="40" y="48" width="280" height="240" rx="12" fill="none" stroke="#B4B2A9" stroke-width="0.5" stroke-dasharray="6 4"/>
+<text class="th" x="56" y="68" dominant-baseline="central">周波数領域 Ŵ(f)</text>
+<line x1="64" y1="100" x2="64" y2="262" stroke="#B4B2A9" stroke-width="1"/>
+<line x1="64" y1="262" x2="304" y2="262" stroke="#B4B2A9" stroke-width="1"/>
+<path d="M64 172 C84 178 94 254 122 260" stroke="#F0997B" fill="none" stroke-width="1.5" stroke-dasharray="4 3"/>
+<path d="M64 204 C104 210 128 250 182 259" stroke="#F0997B" fill="none" stroke-width="1.5" stroke-dasharray="4 3"/>
+<path d="M64 230 C130 234 190 250 296 258" stroke="#F0997B" fill="none" stroke-width="1.5" stroke-dasharray="4 3"/>
+<path d="M64 112 C84 132 100 218 136 242 C176 254 236 258 296 260" stroke="#D85A30" fill="none" stroke-width="2.5"/>
+<line x1="206" y1="96" x2="206" y2="262" stroke="#888780" stroke-width="1" stroke-dasharray="5 4"/>
+<text class="ts" x="184" y="280" text-anchor="middle" dominant-baseline="central">DC = 1 から多スケールで減衰</text>
+<text class="ts" x="304" y="276" text-anchor="end" dominant-baseline="central">f</text>
+<line x1="326" y1="170" x2="354" y2="170" class="arr" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+<rect x="360" y="48" width="280" height="240" rx="12" fill="none" stroke="#B4B2A9" stroke-width="0.5" stroke-dasharray="6 4"/>
+<text class="th" x="376" y="68" dominant-baseline="central">空間領域 w(r) = ERF</text>
+<line x1="380" y1="262" x2="624" y2="262" stroke="#B4B2A9" stroke-width="1"/>
+<path d="M472 261 C492 261 492 128 502 128 C512 128 512 261 532 261" stroke="#F0997B" fill="none" stroke-width="1.5" stroke-dasharray="4 3"/>
+<path d="M392 261 C465 261 465 226 502 226 C539 226 539 261 612 261" stroke="#F0997B" fill="none" stroke-width="1.5" stroke-dasharray="4 3"/>
+<path d="M392 260 C452 254 467 250 480 242 C492 234 495 108 502 108 C509 108 512 234 524 242 C537 250 552 254 612 260" stroke="#D85A30" fill="none" stroke-width="2.5"/>
+<text class="ts" x="502" y="280" text-anchor="middle" dominant-baseline="central">鋭い芯 + 広い裾 = 集約ガウス(AGD)</text>
+<text class="ts" x="624" y="276" text-anchor="end" dominant-baseline="central">r</text>
+</svg>

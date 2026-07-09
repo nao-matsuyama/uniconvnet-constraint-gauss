@@ -1,0 +1,4 @@
+*.pth filter=lfs diff=lfs merge=lfs -text
+
+# シェルスクリプトは必ず LF で保存(Linux サーバーで CRLF だと `bad interpreter ^M` になる)
+*.sh text eol=lf
