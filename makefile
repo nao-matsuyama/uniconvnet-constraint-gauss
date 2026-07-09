@@ -28,6 +28,19 @@
 #     make pipeline-inner WEIGHTS=/workspace/experiments/run_XXXXXX/best_uniconvnet_unet.pth
 # ==============================================================
 
+# ── Windows で PowerShell/cmd から make しても POSIX シェルで動くよう bash を強制 ──
+# (レシピは [ ] や VAR=val cmd 等の sh 構文。既定だと Windows make は cmd.exe を使い落ちる。
+#  GNU Make 3.81 は空白入りパスの SHELL を起動できないので "Program Files" でなく 8.3 短縮名
+#  PROGRA~1 を使う。Linux サーバーでは $(OS) 未定義なので既定 /bin/sh のまま = 無害。
+#  Git が別の場所/8.3無効の環境では Git Bash から make すること。)
+ifeq ($(OS),Windows_NT)
+  _GITBASH := $(firstword $(wildcard C:/PROGRA~1/Git/bin/bash.exe C:/PROGRA~2/Git/bin/bash.exe))
+  ifneq ($(_GITBASH),)
+    SHELL := $(_GITBASH)
+    .SHELLFLAGS := -c
+  endif
+endif
+
 COMPOSE     = docker compose
 SERVICE     = app
 SRC         = /workspace/src
