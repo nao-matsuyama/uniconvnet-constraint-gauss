@@ -159,8 +159,14 @@ class GaussianDerivativeDW(nn.Module):
         K0<K なら中央ゼロ埋め、K0>K なら中央クロップ。
         """
         C, K = self.channels, self.kernel_size
+        # モデルは既に cuda 等へ移されている場合がある(train は model.to(device) 後に転移)。
+        # 一方 dense_weight は checkpoint 由来で CPU。基底 H は log_sigma(モデルデバイス)から
+        # 作られるので、dense 側をモデルのデバイスへ揃えないと einsum で device 不一致になる。
+        device = self.coeff.device
         K0 = dense_weight.shape[-1]
-        W0 = dense_weight.reshape(C, dense_weight.shape[-2], K0).to(torch.float32)
+        W0 = dense_weight.reshape(C, dense_weight.shape[-2], K0).to(
+            device=device, dtype=torch.float32
+        )
         Wemb = W0.new_zeros(C, K, K)
         if K >= K0:
             off = (K - K0) // 2
@@ -168,12 +174,12 @@ class GaussianDerivativeDW(nn.Module):
         else:  # 密の方が大きい → 中央クロップ
             o = (K0 - K) // 2
             Wemb = W0[:, o : o + K, o : o + K].contiguous()
-        H = self._hermite_basis(self.current_sigma().to(torch.float32))  # (C,K,M)
+        H = self._hermite_basis(self.current_sigma().to(torch.float32))  # (C,K,M) デバイス上
         Hp = torch.linalg.pinv(H)  # (C,M,K)
         A = torch.einsum("cmk,ckl,cnl->cmn", Hp, Wemb, Hp)  # (C,M,M)
         self.coeff.copy_(A.to(self.coeff.dtype))
         if dense_bias is not None:
-            self.bias.copy_(dense_bias.to(self.bias.dtype))
+            self.bias.copy_(dense_bias.to(device=device, dtype=self.bias.dtype))
 
     # ── 実効カーネル(C,1,K,K) を再構成(診断/可視化用) ──
     def effective_kernel(self):
