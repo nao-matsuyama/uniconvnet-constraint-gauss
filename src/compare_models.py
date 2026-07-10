@@ -46,11 +46,11 @@ from run_meta import write_manifest
 NUM_CLASSES = 13
 
 
-def get_val_dataset(data_dir):
+def get_val_dataset(data_dir, view="both"):
     full = (
-        ScintiMultiClassDataset(data_dir=data_dir)
+        ScintiMultiClassDataset(data_dir=data_dir, view=view)
         if data_dir
-        else ScintiMultiClassDataset()
+        else ScintiMultiClassDataset(view=view)
     )
     train_size = int(0.8 * len(full))
     val_size = len(full) - train_size
@@ -119,6 +119,12 @@ def main():
     parser.add_argument(
         "--plot-metric", default="dice", help="図と per_class_on_worst の指標"
     )
+    parser.add_argument(
+        "--view",
+        choices=["both", "anterior", "posterior"],
+        default="both",
+        help="比較するビュー。学習時と揃えること (anterior 学習同士なら anterior)。",
+    )
     args = parser.parse_args()
 
     boundary = not args.no_boundary
@@ -150,7 +156,7 @@ def main():
         models=dict(zip(labels, args.weights)),
     )
 
-    val = get_val_dataset(args.data_dir)
+    val = get_val_dataset(args.data_dir, view=args.view)
     print(f"バリデーションサンプル数: {len(val)}")
 
     results = {}

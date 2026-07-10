@@ -67,6 +67,8 @@ MAX_SIGMA   ?= 8 6 4 3
 SIGMA_LR    ?= 1e-2
 GD_BATCH    ?= 16
 TAG         ?= gaussderiv_n$(ORDER)
+# 読み込むビュー: both(既定) / anterior(正面_A) / posterior(背面_P)
+VIEW        ?= both
 
 # ── ローカル CPU 検証用 (compose を使わず直接 docker run。GPU 不要のワンショット) ──
 IMAGE       ?= uniconvnet-t-app:latest
@@ -210,6 +212,7 @@ train-gd-inner:
 		--spectral-init-sigma $(INIT_SIGMA) \
 		--spectral-max-sigma  $(MAX_SIGMA) \
 		--spectral-sigma-lr   $(SIGMA_LR) \
+		--view            $(VIEW) \
 		--tag             $(TAG)
 
 ## 比較用 baseline (dense) 学習（コンテナ内から / gauss_deriv と同 seed・予算で対照）
@@ -222,6 +225,7 @@ train-baseline-inner:
 		--max-epochs  $(MAX_EPOCHS) \
 		--lr          $(LR) \
 		--dw-mode     dense \
+		--view        $(VIEW) \
 		--tag         baseline
 
 ## ローカル CPU スモークテスト（torch があれば GPU 不要で構造確認）

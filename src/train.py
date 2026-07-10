@@ -147,6 +147,14 @@ def build_parser():
         description="Train UniConvNet U-Net for scinti segmentation"
     )
     parser.add_argument("--data-dir", default="/workspace/scinti_segmentation")
+    parser.add_argument(
+        "--view",
+        choices=["both", "anterior", "posterior"],
+        default="both",
+        help="読み込むビュー。anterior=正面(_A)/posterior=背面(_P)/both=両方(既定)。"
+        "フィルタは train/val 分割の前に掛かるので、anterior 指定で val も正面のみになる。"
+        "胸骨(c12)等の前面固有クラスの取り違えを避けたいときに anterior を使う。",
+    )
     parser.add_argument("--pretrained", default="uniconvnet_t_1k_224_ema.pth")
     parser.add_argument("--save-dir", default="")
     parser.add_argument("--batch-size", type=int, default=64)
@@ -581,8 +589,8 @@ def train_net(args=None):
     write_run_config(save_dir, args)
     print(f"📁 今回の実験データは {save_dir} に保存されます (run_config.json 出力済み)")
 
-    # データセットの読み込みと分割
-    full_dataset = ScintiMultiClassDataset(data_dir=args.data_dir)
+    # データセットの読み込みと分割 (view で正面/背面を絞れる。分割前フィルタなので val も同ビュー)
+    full_dataset = ScintiMultiClassDataset(data_dir=args.data_dir, view=args.view)
     train_size = int(0.8 * len(full_dataset))
     val_size = len(full_dataset) - train_size
     train_dataset, val_dataset = random_split(

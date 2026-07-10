@@ -9,11 +9,41 @@ import torch
 from torch.utils.data import Dataset
 
 
+# ファイル名末尾のビュー記号 (…_A.mhd = Anterior/正面, …_P.mhd = Posterior/背面)。
+# 各症例は _A と _P の 2 ビューを持つ。view で読み込む側を絞れる。
+_VIEW_ALIASES = {
+    "both": "both",
+    "all": "both",
+    "anterior": "A",
+    "a": "A",
+    "front": "A",
+    "正面": "A",
+    "posterior": "P",
+    "p": "P",
+    "back": "P",
+    "背面": "P",
+}
+
+
+def view_of(path):
+    """ファイルパスからビュー記号 'A'/'P' を返す (末尾 _A/_P)。不明は '?'。"""
+    stem = os.path.splitext(os.path.basename(path))[0]
+    tok = stem.rsplit("_", 1)[-1].upper()
+    return tok if tok in ("A", "P") else "?"
+
+
 class ScintiMultiClassDataset(Dataset):
-    def __init__(self, data_dir="/workspace/scinti_segmentation"):
+    def __init__(self, data_dir="/workspace/scinti_segmentation", view="both"):
         self.data_dir = self._resolve_data_dir(data_dir)
         self.image_dir = os.path.join(self.data_dir, "image")
         self.bone_dir = os.path.join(self.data_dir, "bone")
+
+        v = _VIEW_ALIASES.get(str(view).strip().lower())
+        if v is None:
+            raise ValueError(
+                f"view は both/anterior/posterior のいずれか (指定: {view!r})"
+            )
+        self.view = v
 
         self.image_files = sorted(glob.glob(os.path.join(self.image_dir, "*.mhd")))
         self.bone_files = sorted(glob.glob(os.path.join(self.bone_dir, "*.mhd")))
@@ -24,6 +54,23 @@ class ScintiMultiClassDataset(Dataset):
                 f"{self.image_dir}\n"
                 "   --data-dir で scinti_segmentation の親ディレクトリを指定してください。"
             )
+
+        # ビューで絞る (both は無フィルタ)。A/P はファイル名末尾記号で判定。
+        if self.view in ("A", "P"):
+            n_before = len(self.image_files)
+            self.image_files = [f for f in self.image_files if view_of(f) == self.view]
+            self.bone_files = [f for f in self.bone_files if view_of(f) == self.view]
+            label = "Anterior(正面)" if self.view == "A" else "Posterior(背面)"
+            print(
+                f"🧭 view={label}: {len(self.image_files)}/{n_before} 枚を選択"
+                f" (残りは他ビューとして除外)"
+            )
+            if len(self.image_files) == 0:
+                raise FileNotFoundError(
+                    f"❌ view={label} に該当するファイルがありません。"
+                    "ファイル名末尾の _A/_P 記号を確認してください。"
+                )
+
         if len(self.image_files) != len(self.bone_files):
             print(
                 f"⚠️ 警告: 画像数 ({len(self.image_files)}) と骨マスク数 ({len(self.bone_files)}) が一致しません。"

@@ -305,6 +305,12 @@ def main():
         action="store_true",
         help="全バリデーションサンプルの推論マスク/パネルを保存する",
     )
+    parser.add_argument(
+        "--view",
+        choices=["both", "anterior", "posterior"],
+        default="both",
+        help="可視化するビュー。学習時と揃える (anterior 学習なら anterior)。",
+    )
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -318,9 +324,9 @@ def main():
     )
 
     full_dataset = (
-        ScintiMultiClassDataset(data_dir=args.data_dir)
+        ScintiMultiClassDataset(data_dir=args.data_dir, view=args.view)
         if args.data_dir
-        else ScintiMultiClassDataset()
+        else ScintiMultiClassDataset(view=args.view)
     )
     train_size = int(0.8 * len(full_dataset))
     val_size = len(full_dataset) - train_size

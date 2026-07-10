@@ -36,11 +36,11 @@ from dataset_scinti import ScintiMultiClassDataset
 NUM_CLASSES = 13
 
 
-def build_val_loader(data_dir, batch_size, num_workers):
+def build_val_loader(data_dir, batch_size, num_workers, view="both"):
     full = (
-        ScintiMultiClassDataset(data_dir=data_dir)
+        ScintiMultiClassDataset(data_dir=data_dir, view=view)
         if data_dir
-        else ScintiMultiClassDataset()
+        else ScintiMultiClassDataset(view=view)
     )
     train_size = int(0.8 * len(full))
     val_size = len(full) - train_size
@@ -69,6 +69,7 @@ def evaluate_model(
     spacing=(1.0, 1.0),
     nsd_taus=(1.0, 2.0, 3.0),
     worst_fracs=(0.1, 0.25),
+    view="both",
 ):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"評価デバイス: {device}")
@@ -83,7 +84,7 @@ def evaluate_model(
         weight_path, num_classes=NUM_CLASSES, device=device
     )
 
-    val, loader = build_val_loader(data_dir, batch_size, num_workers)
+    val, loader = build_val_loader(data_dir, batch_size, num_workers, view=view)
     print(f"バリデーションサンプル数: {len(val)}")
 
     names = M.metric_list(nsd_taus=nsd_taus, boundary=boundary)
@@ -151,6 +152,12 @@ if __name__ == "__main__":
     )
     parser.add_argument("--nsd-taus", type=float, nargs="+", default=[1.0, 2.0, 3.0])
     parser.add_argument("--worst-fracs", type=float, nargs="+", default=[0.1, 0.25])
+    parser.add_argument(
+        "--view",
+        choices=["both", "anterior", "posterior"],
+        default="both",
+        help="評価するビュー。学習時と揃えること (anterior 学習なら anterior で評価)。",
+    )
     args = parser.parse_args()
 
     evaluate_model(
@@ -163,4 +170,5 @@ if __name__ == "__main__":
         spacing=tuple(args.spacing),
         nsd_taus=tuple(args.nsd_taus),
         worst_fracs=tuple(args.worst_fracs),
+        view=args.view,
     )
