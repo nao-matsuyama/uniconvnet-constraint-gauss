@@ -59,6 +59,8 @@ class UniConvNet_UNet_13CH_Complete(nn.Module):
         spectral_num_gaussians=3,
         separable_rank=1,
         gauss_deriv_order=2,
+        gauss_pyramid_growth=1.6,
+        gauss_freeze_scale=False,
         dw_mode="dense",
     ):
         super().__init__()
@@ -79,6 +81,8 @@ class UniConvNet_UNet_13CH_Complete(nn.Module):
             spectral_num_gaussians=spectral_num_gaussians,
             separable_rank=separable_rank,
             gauss_deriv_order=gauss_deriv_order,
+            gauss_pyramid_growth=gauss_pyramid_growth,
+            gauss_freeze_scale=gauss_freeze_scale,
             dw_mode=dw_mode,
         )
         dims = [64, 128, 256, 512]

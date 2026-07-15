@@ -258,12 +258,33 @@ def build_parser():
     # 統一 depthwise セレクタ (dense/separable/spectral/spectral_mix)。機構A/B/C の新モジュール。
     parser.add_argument(
         "--dw-mode",
-        choices=["dense", "separable", "spectral", "spectral_mix", "gauss_deriv"],
+        choices=[
+            "dense",
+            "separable",
+            "spectral",
+            "spectral_mix",
+            "gauss_deriv",
+            "gauss_pyramid",
+        ],
         default="dense",
         help="RFA a1/a2/a3 の depthwise 機構。dense(既定)/separable(機構A 1×K・K×1 分離)/"
         "spectral(機構B 周波数+動的スペクトル切り出し)/spectral_mix(機構C 多ガウス混合)/"
-        "gauss_deriv(ガウス微分基底で RF を σ のみに縛る本命)。separable/gauss_deriv は"
+        "gauss_deriv(ガウス微分基底で RF を σ のみに縛る)/"
+        "gauss_pyramid(多スケール純ガウス+pointwise DoG)。separable/gauss_deriv は"
         "事前学習の密カーネルを分離初期化/基底射影して転移する。",
+    )
+    parser.add_argument(
+        "--gauss-pyramid-growth",
+        type=float,
+        default=1.6,
+        help="gauss_pyramid の枝間 σ 成長率。a1/a2/a3 の σ = init_sigma·growth^{0,1,2}。"
+        "1.0 でカスケード(ガウス半群)のみの増大、>1 で明示的にピラミッドを広げる。",
+    )
+    parser.add_argument(
+        "--freeze-scale",
+        action="store_true",
+        help="gauss_pyramid の σ を固定(純スケール空間)。未指定なら学習可能"
+        "(--spectral-sigma-lr>0 で駆動)。",
     )
     parser.add_argument(
         "--gauss-deriv-order",
@@ -487,7 +508,15 @@ def write_run_info(save_dir, args, result):
                     f" max_sigma={a.get('spectral_max_sigma')}"
                     f" sigma_lr={a.get('spectral_sigma_lr')}"
                     if a.get("dw_mode") == "gauss_deriv"
-                    else ""
+                    else (
+                        f"  base_sigma={a.get('spectral_init_sigma')}"
+                        f" growth={a.get('gauss_pyramid_growth')}"
+                        f" max_sigma={a.get('spectral_max_sigma')}"
+                        f" freeze_scale={a.get('freeze_scale')}"
+                        f" sigma_lr={a.get('spectral_sigma_lr')}"
+                        if a.get("dw_mode") == "gauss_pyramid"
+                        else ""
+                    )
                 )
             )
         ),
@@ -698,6 +727,20 @@ def train_net(args=None):
                 "  ⚠️ --spectral-sigma-lr=0: σ は base lr で凍結する見込み(RF は init 固定)。"
                 "σ(RF)を学習させるなら 1e-2 程度を指定 (visualize_sigma.py で確認)。"
             )
+    if args.dw_mode == "gauss_pyramid":
+        print(
+            f"🔭 GaussianPyramidDW 有効 | 多スケール純ガウス | init_sigma(base/stage別)="
+            f"{args.spectral_init_sigma} growth={args.gauss_pyramid_growth} "
+            f"(a1/a2/a3 σ=base·growth^0/1/2) max_sigma={args.spectral_max_sigma} "
+            f"freeze_scale={args.freeze_scale} sigma_lr={args.spectral_sigma_lr} | "
+            "純ガウス低域通過(local枝/gamma なし)。境界は pointwise の DoG で復元。"
+            "カスケードのガウス半群で実効σ増大。"
+        )
+        if not args.freeze_scale and args.spectral_sigma_lr == 0:
+            print(
+                "  ⚠️ σ 学習可(freeze_scaleなし)だが --spectral-sigma-lr=0: σ は実質凍結。"
+                "σ を動かすなら 1e-2 程度を指定、または --freeze-scale で明示的に固定。"
+            )
     model = UniConvNet_UNet_13CH(
         num_classes=13,
         adaptive_dw=args.adaptive_dw,
@@ -713,11 +756,17 @@ def train_net(args=None):
         spectral_num_gaussians=args.spectral_num_gaussians,
         separable_rank=args.separable_rank,
         gauss_deriv_order=args.gauss_deriv_order,
+        gauss_pyramid_growth=args.gauss_pyramid_growth,
+        gauss_freeze_scale=args.freeze_scale,
         dw_mode=args.dw_mode,
     )
-    # FFT を使う機構 (旧 spectral_gaussian / 新 spectral / 多ガウス混合) は DataParallel で崩壊する既知バグ。
-    # gauss_deriv は空間 separable conv (FFT 非使用) なので DataParallel 可。
-    uses_fft = args.spectral_dw or args.dw_mode in ("spectral", "spectral_mix")
+    # FFT を使う機構 (旧 spectral_gaussian / 新 spectral / 多ガウス混合 / gauss_pyramid) は
+    # DataParallel で崩壊する既知バグ。gauss_deriv は空間 separable conv (FFT 非使用) なので DataParallel 可。
+    uses_fft = args.spectral_dw or args.dw_mode in (
+        "spectral",
+        "spectral_mix",
+        "gauss_pyramid",
+    )
     if torch.cuda.device_count() > 1 and uses_fft:
         # 単一GPU に落とす。複数GPUを使いたい場合も CUDA_VISIBLE_DEVICES で1枚に絞ること。
         print(

@@ -30,6 +30,7 @@ src/
     spectral_dw.py           # 機構B: 周波数ガウス+動的切り出し(pad/quantile 改善ノブ)
     spectral_mixture_dw.py   # 機構C: 多ガウス混合(K本の周波数ガウス和)+ 分離rank-K + 振幅考慮切り出し
     gaussian_derivative_dw.py # ★本命: ガウス微分基底 W=H(σ)AH(σ)ᵀ。RF を σ のみに縛る(local枝/gammaなし)
+    gaussian_pyramid_dw.py    # 多スケール純ガウス(scale-space pyramid)。SpectralDW派生。境界は pointwise の DoG で復元
     spectral_gaussian_dw.py  # 旧: フルサイズ周波数ガウス
     content_adaptive_dw.py   # 旧: コンテンツ適応 dilation
     erf_regularization.py    # ERF正則化損失(rf_spread を目標へ)
@@ -101,6 +102,20 @@ CUDA_VISIBLE_DEVICES=0 python3 src/train.py --dw-mode gauss_deriv \
 =制約が強く init は弱いwarm-start。精度は fine-tune + σ 学習で取り戻す設計(要実機検証)。
 まず `baseline(dense)` vs `gauss_deriv N=2` を worst×境界(compare_models)で、次に **N=0 vs N=2** で
 「微分項が境界を救うか」を切り分ける。効くとすれば骨シンチ(局所)より RF が効くタスク。
+
+### `gauss_pyramid`(多スケール純ガウス + pointwise DoG, 2026-07-10)
+
+RFA を「大小の学習カーネルで AGD を作る」から「最初から純ガウス」へ。a1/a2/a3 を σ1<σ2<σ3 の
+**純ガウス**(`SpectralDW` を use_local_branch=False で派生 `GaussianPyramidDW`)にしてスケール空間
+ピラミッドを張る。**カスケード=ガウス半群** `G_σ1*G_σ2=G_√(σ1²+σ2²)` で実効σが自然増大。
+`--gauss-pyramid-growth`(既定1.6, 枝σ=init·growth^{0,1,2})で明示的に広げる。**枝σが stage の
+max_sigma を超えると clamp 飽和で σ の勾配が消える**ので `init·growth² ≤ max_sigma`(例 init 1 growth
+1.6 max 8 6 4 3 で全枝可動)。**境界は depthwise でなく pointwise(v-conv) の DoG で復元**(純ガウス+DoG,
+local枝/gamma なし)。σ既定学習可(`--spectral-sigma-lr 1e-2`)/`--freeze-scale`で固定。**FFT系=単一GPU厳守**。
+ckpt は run_config の dw_mode=gauss_pyramid で判別。model_stats/benchmark/erf/visualize_sigma は
+isinstance(SpectralDW) で自動対応。推奨: `--dw-mode gauss_pyramid --spectral-init-sigma 1
+--spectral-max-sigma 8 6 4 3 --gauss-pyramid-growth 1.6 --spectral-sigma-lr 1e-2 --view anterior
+--batch-size 16`。焦点=pure-spec は境界悪化だったが **pyramid+pointwise-DoG で境界を保てるか**。
 
 ## よく使うコマンド
 

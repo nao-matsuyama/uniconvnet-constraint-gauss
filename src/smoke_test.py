@@ -213,6 +213,32 @@ def main():
         smoke_mode("gauss_deriv", {**gd_kw, "gauss_deriv_order": 2})  # エッジ/リッジ
     else:
         print("  (gaussian_derivative_dw 未導入のためスキップ)")
+    # gauss_pyramid (多スケール純ガウス, SpectralDW 派生)。学習可能σ版は smoke_mode で
+    # log_sigma に勾配が流れることまで確認 (純ガウスは gate 無しなので σ に勾配が届く)。
+    gp_kw = {
+        "spectral_init_sigma": [2, 2, 2, 2],
+        "spectral_max_sigma": [8, 6, 4, 3],
+        "gauss_pyramid_growth": 1.6,
+    }
+    smoke_mode("gauss_pyramid", gp_kw)
+    # freeze_scale=True は depthwise に勾配パラメータが無くなる(=固定スケール空間)ので、
+    # smoke_mode の勾配アサートは適用外。build+forward と log_sigma 凍結だけ確認する。
+    print("\n===== dw_mode = gauss_pyramid (freeze_scale=True) =====")
+    from models.spectral_dw import SpectralDW as _SpecDW
+
+    torch.manual_seed(0)
+    mdl_fz = UniConvNet_UNet_13CH(
+        num_classes=13, dw_mode="gauss_pyramid", gauss_freeze_scale=True, **gp_kw
+    )
+    xf = torch.randn(1, 3, 64, 64)
+    yf = mdl_fz(xf)
+    check(yf.shape == (1, 13, 64, 64), f"[gp-freeze] forward 出力 shape {tuple(yf.shape)}")
+    spec_mods = [m for m in mdl_fz.modules() if isinstance(m, _SpecDW)]
+    check(len(spec_mods) == 72, f"[gp-freeze] 純ガウス枝 72 個 実際 {len(spec_mods)}")
+    check(
+        all(not m.log_sigma.requires_grad for m in spec_mods),
+        "[gp-freeze] 全 log_sigma が凍結 (requires_grad=False)",
+    )
 
     # ── 9. FLOPs 比較 (dense vs spectral vs spectral_mix vs separable / gauss_deriv) ──
     print("\n[9] FLOPs 比較 (機構ごとの省コスト)")
@@ -226,6 +252,11 @@ def main():
             "gauss_deriv_n2",
             "gauss_deriv",
             {"spectral_max_sigma": [8, 6, 4, 2], "gauss_deriv_order": 2},
+        ),
+        (
+            "gauss_pyramid",
+            "gauss_pyramid",
+            {"spectral_init_sigma": [2, 2, 2, 2], "spectral_max_sigma": [8, 6, 4, 3]},
         ),
     ]:
         if mode == "gauss_deriv" and GaussianDerivativeDW is None:

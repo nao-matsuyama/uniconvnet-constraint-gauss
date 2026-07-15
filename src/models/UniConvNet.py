@@ -64,6 +64,14 @@ except ImportError:
         GaussianDerivativeDW = None  # 未導入環境でも import を壊さない
 
 try:
+    from .gaussian_pyramid_dw import GaussianPyramidDW
+except ImportError:
+    try:
+        from gaussian_pyramid_dw import GaussianPyramidDW
+    except ImportError:
+        GaussianPyramidDW = None  # 未導入環境でも import を壊さない
+
+try:
     from timm.models.layers import DropPath, trunc_normal_
 except ImportError:
     # timm が無い場合のフォールバック
@@ -173,6 +181,8 @@ class ConvMod(nn.Module):
         spectral_num_gaussians=3,
         separable_rank=1,
         gauss_deriv_order=2,
+        gauss_pyramid_growth=1.6,
+        gauss_freeze_scale=False,
         dw_mode="dense",
     ):
         super().__init__()
@@ -183,6 +193,7 @@ class ConvMod(nn.Module):
         #   spectral         : SpectralDW             (機構B: 周波数 + 動的スペクトル切り出し)
         #   spectral_mix     : SpectralMixtureDW      (機構C: 多ガウス混合 + 動的切り出し)
         #   gauss_deriv      : GaussianDerivativeDW   (ガウス微分基底で RF を σ のみに縛る本命)
+        #   gauss_pyramid    : GaussianPyramidDW      (多スケール純ガウス + pointwise DoG)
         #   spectral_gaussian: SpectralGaussianDW     (旧・フルサイズ周波数ガウス)
         #   adaptive         : ContentAdaptiveDW      (旧・コンテンツ適応 dilation)
         if dw_mode not in (
@@ -191,6 +202,7 @@ class ConvMod(nn.Module):
             "spectral",
             "spectral_mix",
             "gauss_deriv",
+            "gauss_pyramid",
         ):
             raise ValueError(f"未知の dw_mode: {dw_mode}")
         mode = dw_mode
@@ -257,6 +269,28 @@ class ConvMod(nn.Module):
                     order=gauss_deriv_order,
                     init_sigma=spectral_init_sigma,
                     max_sigma=spectral_max_sigma,
+                )
+            if mode == "gauss_pyramid":
+                # 多スケール純ガウス: 枝ごとに σ を増加 (a1<a2<a3)。枝は kernel_size k(7/9/11)で
+                # 識別し idx=0/1/2、σ_branch = init_sigma·growth^idx。カスケードのガウス半群で
+                # 実効σはさらに増大。境界は pointwise(v-conv) の DoG に任せる(local枝/gamma なし)。
+                if GaussianPyramidDW is None:
+                    raise ImportError(
+                        "gaussian_pyramid_dw.GaussianPyramidDW を import できません"
+                    )
+                branch_idx = {7: 0, 9: 1, 11: 2}.get(k, 0)
+                sigma_branch = float(spectral_init_sigma) * (
+                    float(gauss_pyramid_growth) ** branch_idx
+                )
+                return GaussianPyramidDW(
+                    ch,
+                    kernel_size=k,
+                    init_sigma=sigma_branch,
+                    max_sigma=spectral_max_sigma,
+                    alpha=spectral_alpha,
+                    pad_factor=spectral_pad_factor,
+                    crop_quantile=spectral_crop_quantile,
+                    freeze_scale=gauss_freeze_scale,
                 )
             if mode == "spectral_gaussian":
                 return SpectralGaussianDW(
@@ -395,6 +429,8 @@ class Block(nn.Module):
         spectral_num_gaussians=3,
         separable_rank=1,
         gauss_deriv_order=2,
+        gauss_pyramid_growth=1.6,
+        gauss_freeze_scale=False,
         dw_mode="dense",
         **kwargs,
     ):
@@ -414,6 +450,8 @@ class Block(nn.Module):
             spectral_num_gaussians=spectral_num_gaussians,
             separable_rank=separable_rank,
             gauss_deriv_order=gauss_deriv_order,
+            gauss_pyramid_growth=gauss_pyramid_growth,
+            gauss_freeze_scale=gauss_freeze_scale,
             dw_mode=dw_mode,
         )
         self.mlp = MLPLayer(
@@ -480,6 +518,8 @@ class UniConvNet(nn.Module):
         spectral_num_gaussians=3,
         separable_rank=1,
         gauss_deriv_order=2,
+        gauss_pyramid_growth=1.6,
+        gauss_freeze_scale=False,
         dw_mode="dense",
     ):
         super().__init__()
@@ -536,6 +576,8 @@ class UniConvNet(nn.Module):
                         spectral_num_gaussians=spectral_num_gaussians,
                         separable_rank=separable_rank,
                         gauss_deriv_order=gauss_deriv_order,
+                        gauss_pyramid_growth=gauss_pyramid_growth,
+                        gauss_freeze_scale=gauss_freeze_scale,
                         dw_mode=dw_mode,
                     )
                     for j in range(depths[i])

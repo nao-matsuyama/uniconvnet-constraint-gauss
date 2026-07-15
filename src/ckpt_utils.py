@@ -95,6 +95,32 @@ def build_model_from_checkpoint(
     if dw_mode is None and coeff_keys:
         dw_mode = "gauss_deriv"
 
+    if dw_mode == "gauss_pyramid":
+        # 多スケール純ガウス。state_dict は SpectralDW と同形(log_sigma 1D)なので run_config の
+        # dw_mode で判別。growth は init σ にしか効かず reload では log_sigma が上書きするので
+        # 再現に不要だが、max_sigma(σ clamp)は学習時と一致させる。use_local は常に False。
+        max_sigma = read_run_arg(weights, "spectral_max_sigma", (32.0, 24.0, 12.0, 6.0))
+        growth = float(read_run_arg(weights, "gauss_pyramid_growth", 1.6))
+        if verbose:
+            print(
+                f"    (dw_mode=gauss_pyramid, growth={growth}, "
+                f"max_sigma={max_sigma} を検出)"
+            )
+        model = UniConvNet_UNet_13CH(
+            num_classes=num_classes,
+            dw_mode="gauss_pyramid",
+            gauss_pyramid_growth=growth,
+            spectral_alpha=spectral_alpha,
+            spectral_pad_factor=pad_factor,
+            spectral_crop_quantile=crop_quantile,
+            spectral_max_sigma=tuple(max_sigma)
+            if isinstance(max_sigma, (list, tuple))
+            else max_sigma,
+        )
+        model.load_state_dict(sd)
+        model.to(device)
+        return model.eval() if eval_mode else model
+
     if dw_mode == "gauss_deriv":
         # order N は coeff 形状 (C,M,M) の M-1 から復元 (run_config を優先)。
         order_from_sd = (sd[coeff_keys[0]].shape[1] - 1) if coeff_keys else 2
