@@ -283,8 +283,15 @@ def build_parser():
     parser.add_argument(
         "--freeze-scale",
         action="store_true",
-        help="gauss_pyramid の σ を固定(純スケール空間)。未指定なら学習可能"
-        "(--spectral-sigma-lr>0 で駆動)。",
+        help="σ(log_sigma)を init に固定(全機構共通)。σ の per-channel 分化を止める対照/"
+        "大σを縮ませず強制する用途。未指定なら学習可能(--spectral-sigma-lr>0 で駆動)。",
+    )
+    parser.add_argument(
+        "--freeze-gamma",
+        action="store_true",
+        help="spectral 系の大域枝ゲート gamma を init(--spectral-init-gamma)に固定。"
+        "gamma→0 でネットが大域枝を無効化するのを防ぎ、大RF文脈の寄与を強制する。"
+        "大カーネルを無理やり効かせる実験用(local枝で detail を保ちつつ大域を強制注入)。",
     )
     parser.add_argument(
         "--gauss-deriv-order",
@@ -819,6 +826,21 @@ def train_net(args=None):
                 p.requires_grad = False
                 n_frozen += 1
         print(f"🧊 σ を固定 (log_sigma {n_frozen} 個を学習対象外, σ=init のまま分化なし)")
+
+    # 大カーネル強制注入用: spectral 系の大域枝ゲート gamma を init に固定 (gamma→0 で
+    # 無効化されるのを防ぎ、大RF 文脈の寄与を強制)。名前が '.gamma' で終わるのは depthwise
+    # の spectral ゲートのみ (Block の gamma1/gamma2/layer_scale は末尾が違うので対象外)。
+    if args.freeze_gamma:
+        m_ = model.module if isinstance(model, nn.DataParallel) else model
+        n_frozen = 0
+        for name, p in m_.named_parameters():
+            if name.endswith(".gamma") and p.requires_grad:
+                p.requires_grad = False
+                n_frozen += 1
+        print(
+            f"🧊 gamma を固定 (spectral ゲート {n_frozen} 個を学習対象外, "
+            f"init_gamma={args.spectral_init_gamma} で大域枝を強制ON)"
+        )
 
     if args.erf_reg_weight > 0:
         print(
