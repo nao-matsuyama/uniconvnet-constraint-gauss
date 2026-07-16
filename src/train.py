@@ -809,6 +809,17 @@ def train_net(args=None):
             f"🧊 dilation を固定 (log_dilation {n_frozen} 個を学習対象外, dilation=1)"
         )
 
+    # 対照実験用: σ を init に固定 (全機構共通)。gauss_pyramid は構築時にも凍結するが、
+    # gauss_deriv / spectral 系はここで凍結する。σ の per-channel 分化が精度に効くかの切り分け用。
+    if args.freeze_scale:
+        m_ = model.module if isinstance(model, nn.DataParallel) else model
+        n_frozen = 0
+        for name, p in m_.named_parameters():
+            if name.endswith("log_sigma") and p.requires_grad:
+                p.requires_grad = False
+                n_frozen += 1
+        print(f"🧊 σ を固定 (log_sigma {n_frozen} 個を学習対象外, σ=init のまま分化なし)")
+
     if args.erf_reg_weight > 0:
         print(
             f"🎯 ERF 正則化 ON | lambda={args.erf_reg_weight} "
