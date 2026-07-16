@@ -830,14 +830,23 @@ def train_net(args=None):
     # へ漸増し、warmup 後は max_sigma まで開放。大 init_sigma を崩壊させず使うための駆動。
     warmup_epochs = args.spectral_sigma_warmup_epochs
     spectral_mods = []
-    if args.spectral_dw and warmup_epochs > 0:
+    if warmup_epochs > 0:
         base = model.module if isinstance(model, nn.DataParallel) else model
-        spectral_mods = [m for m in base.modules() if isinstance(m, SpectralGaussianDW)]
-        print(
-            f"🐌 σ-warmup ON | start={args.spectral_sigma_warmup_start} → "
-            f"target(init_sigma) を {warmup_epochs}ep で到達後 max_sigma へ開放 "
-            f"({len(spectral_mods)} 個の SpectralGaussianDW)"
-        )
+        # set_sigma_cap/target_sigma を持つ全 σ 機構 (SpectralGaussianDW / SpectralDW /
+        # SpectralMixtureDW / GaussianDerivativeDW / GaussianPyramidDW) に coarse-to-fine
+        # warmup を適用する。以前は SpectralGaussianDW + --spectral-dw のときしか効かず、
+        # gauss_deriv / gauss_pyramid では warmup が死んでいた (このゲートを撤廃して修正)。
+        spectral_mods = [
+            m
+            for m in base.modules()
+            if hasattr(m, "set_sigma_cap") and hasattr(m, "target_sigma")
+        ]
+        if spectral_mods:
+            print(
+                f"🐌 σ-warmup ON | start={args.spectral_sigma_warmup_start} → "
+                f"target(init σ) を {warmup_epochs}ep で到達後 max_sigma へ開放 "
+                f"({len(spectral_mods)} 個の σ 機構)"
+            )
 
     last_diag = None
     for epoch in range(1, max_epochs + 1):
