@@ -64,6 +64,8 @@ CLASS_NAMES = [
 
 OVERLAP_METRICS = ("dice", "iou", "precision", "recall", "specificity")
 BOUNDARY_METRICS = ("hd95", "hd", "assd")  # nsd は tau 付きで動的に足す
+DW_LAMBDAS = (5.0,)  # 距離重み付き Dice の名前は dwdice@λ（λ を並べれば一括スイープ）
+DW_TAU_FRAC = 0.1  # τ = 画像対角長 × tau_frac（スケール不変）
 
 
 # ─────────────────────────────────────────────
@@ -182,6 +184,126 @@ def _fmt_tau(t):
 
 
 # ─────────────────────────────────────────────
+# 距離重み付き Dice（DWD）
+# ─────────────────────────────────────────────
+def _dw_names(lambdas=DW_LAMBDAS):
+    """dwdice の指標名（dwdice@λ）の並びを返す。"""
+    return [f"dwdice@{lam:g}" for lam in lambdas]
+
+
+def distance_weighted_dice(
+    pred_c,
+    gt_c,
+    spacing=(1.0, 1.0),
+    lambdas=DW_LAMBDAS,
+    tau=None,
+    tau_frac=DW_TAU_FRAC,
+    saturate=True,
+):
+    """距離重み付き Dice（DWD）を λ ごとに返す（EDT は 1 回だけ計算）。
+
+    GT 前景から遠い偽陽性(FP)ほど分母で重く罰する「空間認識版 Dice」。標準 Dice は
+    FP を距離に関係なく一律 1 で数えるため「境界を 1px はみ出した FP」と「臓器から
+    遠く離れた FP」を区別できない。DWD は FP 項に距離重みを掛けて後者を強く罰する。
+
+        DWD = 2·TP / (2·TP + Σ_{i∈FP} w_i + FN)
+        d_i = GT 前景までの EDT（GT 内は 0）… 臓器からどれだけ外れたか
+        w_i = 1 + λ·φ(d_i)   φ: saturate=True → tanh(d_i/τ), False → min(d_i/τ, 1)
+
+    λ=0 で標準 Dice に一致。w_i∈[1,1+λ] なので DWD∈[0,1]、完全一致でのみ 1、かつ
+    常に DWD ≤ dice（遠い FP を上乗せで罰するだけ）。τ は「この距離で罰が飽和」する
+    特性距離で、未指定なら画像対角長×tau_frac（スケール不変）。Σw_i = |FP| + λ·Σφ_i と
+    分解できるので、φ の総和を 1 回求めれば複数 λ をコストほぼゼロでスイープできる。
+
+    空クラス規約は dice と同一に揃える（両側空=NaN, GT空&予測有=0, GT有&予測空=0）。
+
+    返り値: {f"dwdice@{λ:g}": float}
+    """
+    if not _HAVE_SCIPY:
+        raise RuntimeError("DWD（距離重み付き Dice）には scipy が必要です。")
+
+    pred_c = pred_c.astype(bool)
+    gt_c = gt_c.astype(bool)
+    p_any, g_any = pred_c.any(), gt_c.any()
+    if not p_any and not g_any:
+        # 両側空 → 測れない（dice と同じ NaN）
+        return {n: float("nan") for n in _dw_names(lambdas)}
+
+    tp = float(np.count_nonzero(pred_c & gt_c))
+    fn = float(np.count_nonzero(~pred_c & gt_c))
+    fp_mask = pred_c & ~gt_c
+    n_fp = float(np.count_nonzero(fp_mask))
+
+    if not g_any or n_fp == 0:
+        # GT 空（距離の基準が無い）or FP 無し → φ 部分は 0（重みは一律 1 と同じ）
+        phi_sum = 0.0
+    else:
+        # GT 前景までの距離（distance_transform_edt は「最も近い 0 までの距離」）
+        dt = distance_transform_edt(~gt_c, sampling=spacing)
+        if tau is None:
+            diag = float(
+                np.sqrt(sum((s * d) ** 2 for s, d in zip(spacing, gt_c.shape)))
+            )
+            tau = tau_frac * diag
+        d = dt[fp_mask]
+        if tau > 0:
+            phi = np.tanh(d / tau) if saturate else np.minimum(d / tau, 1.0)
+        else:
+            phi = (d > 0).astype(float)
+        phi_sum = float(phi.sum())
+
+    out = {}
+    for lam in lambdas:
+        fp_w = n_fp + lam * phi_sum  # Σ(1 + λ·φ_i) = |FP| + λ·Σφ_i
+        den = 2.0 * tp + fp_w + fn
+        out[f"dwdice@{lam:g}"] = (2.0 * tp) / den if den > 0 else float("nan")
+    return out
+
+
+def distance_phi_stack(
+    mask,
+    num_classes=13,
+    tau=None,
+    tau_frac=DW_TAU_FRAC,
+    saturate=True,
+    spacing=(1.0, 1.0),
+):
+    """GT マスク (H,W) から前景クラス 1..C-1 の距離重み素 φ を (C-1,H,W) で返す。
+
+    DWD 学習ロスの前計算用。distance_weighted_dice と同じ φ を、λ に依存しない形で
+    出す（w_i = 1 + λ·φ_i なので φ さえ持てば λ は学習時に掛けられる）:
+
+        φ_c(x) = tanh(d_c(x)/τ)    d_c = クラス c の GT 前景までの EDT（GT 内は 0）
+        τ      = tau_frac · 画像対角長（全症例同サイズなら定数, スケール不変）
+
+    背景(0)は Dice ロスで除外されるため含めない。クラス c が画像に存在しない場合、
+    そのクラスの d は「基準前景が無い」ので φ_c=0（重み一律 1 と同義）にする。
+
+    返り値: np.float32 配列 (num_classes-1, H, W)、[0,1)。学習では
+    w = 1 + λ·φ を FP 項（p·(1-g)）に掛ける。EDT は torch 非依存なので
+    DataLoader ワーカ（CPU 並列）で計算し GPU 学習に前送りできる。
+    """
+    if not _HAVE_SCIPY:
+        raise RuntimeError("distance_phi_stack には scipy が必要です。")
+
+    mask = np.asarray(mask)
+    h, w = mask.shape[-2:]
+    if tau is None:
+        diag = float(np.sqrt((spacing[0] * h) ** 2 + (spacing[1] * w) ** 2))
+        tau = tau_frac * diag
+    phi = np.zeros((num_classes - 1, h, w), dtype=np.float32)
+    if tau <= 0:
+        return phi
+    for c in range(1, num_classes):
+        gt_c = mask == c
+        if not gt_c.any():
+            continue  # 基準前景が無い → φ=0（重み一律1）
+        dt = distance_transform_edt(~gt_c, sampling=spacing)
+        phi[c - 1] = np.tanh(dt / tau) if saturate else np.minimum(dt / tau, 1.0)
+    return phi
+
+
+# ─────────────────────────────────────────────
 # 1 サンプルまとめ
 # ─────────────────────────────────────────────
 def sample_metrics(
@@ -191,6 +313,11 @@ def sample_metrics(
     spacing=(1.0, 1.0),
     nsd_taus=(1.0, 2.0, 3.0),
     boundary=True,
+    dwdice=True,
+    dw_lambdas=DW_LAMBDAS,
+    dw_tau=None,
+    dw_tau_frac=DW_TAU_FRAC,
+    dw_saturate=True,
 ):
     """1 サンプル（pred, gt は (H,W) のクラス index 配列）の per-class 指標を返す。
 
@@ -201,7 +328,10 @@ def sample_metrics(
     """
     pred = np.asarray(pred)
     gt = np.asarray(gt)
+    use_dw = dwdice and _HAVE_SCIPY
     metric_names = list(OVERLAP_METRICS)
+    if use_dw:
+        metric_names += _dw_names(dw_lambdas)
     if boundary:
         metric_names += list(BOUNDARY_METRICS) + [
             f"nsd@{_fmt_tau(t)}" for t in nsd_taus
@@ -222,6 +352,19 @@ def sample_metrics(
         for m in OVERLAP_METRICS:
             per_class[m][idx] = ov[m]
 
+        if use_dw:
+            dw = distance_weighted_dice(
+                pred_c,
+                gt_c,
+                spacing=spacing,
+                lambdas=dw_lambdas,
+                tau=dw_tau,
+                tau_frac=dw_tau_frac,
+                saturate=dw_saturate,
+            )
+            for m in dw:
+                per_class[m][idx] = dw[m]
+
         if boundary:
             sd = surface_distance_metrics(pred_c, gt_c, spacing, nsd_taus)
             for m in sd:
@@ -238,9 +381,17 @@ def sample_metrics(
     return {"per_class": per_class, "counts": counts, "mean": mean}
 
 
-def metric_list(nsd_taus=(1.0, 2.0, 3.0), boundary=True):
-    """この設定で出力される指標名の並びを返す（表ヘッダ用）。"""
+def metric_list(
+    nsd_taus=(1.0, 2.0, 3.0), boundary=True, dwdice=True, dw_lambdas=DW_LAMBDAS
+):
+    """この設定で出力される指標名の並びを返す（表ヘッダ用）。
+
+    sample_metrics と同じ順序・同じ ON/OFF 条件で名前を組む（両者の名前が一致しないと
+    eval_report / compare_models の列がずれる）。
+    """
     names = list(OVERLAP_METRICS)
+    if dwdice and _HAVE_SCIPY:
+        names += _dw_names(dw_lambdas)
     if boundary:
         names += list(BOUNDARY_METRICS) + [f"nsd@{_fmt_tau(t)}" for t in nsd_taus]
     return names

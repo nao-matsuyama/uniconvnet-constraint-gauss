@@ -21,11 +21,13 @@ from zoneinfo import ZoneInfo  # 👈 日本時間取得のためにこれを追
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader, random_split
 
 from augment_scinti import AugmentedScintiDataset
 from dataset_scinti import ScintiMultiClassDataset
+from metrics import DW_TAU_FRAC, distance_phi_stack
 from model_uniconvnet_unet import UniConvNet_UNet_13CH
 from models.erf_regularization import erf_reg_loss
 from models.gaussian_derivative_dw import load_dense_into_gaussian_derivative
@@ -154,6 +156,22 @@ def build_parser():
         help="読み込むビュー。anterior=正面(_A)/posterior=背面(_P)/both=両方(既定)。"
         "フィルタは train/val 分割の前に掛かるので、anterior 指定で val も正面のみになる。"
         "胸骨(c12)等の前面固有クラスの取り違えを避けたいときに anterior を使う。",
+    )
+    # 距離重み付き Dice（DWD）学習ロス: 臓器から遠い FP を分母で重く罰する（A案の損失版）。
+    parser.add_argument(
+        "--dw-loss-lambda",
+        type=float,
+        default=0.0,
+        help="DWD 学習ロスの罰強度 λ。0(既定)で標準 soft-Dice に一致(既存 run と数値不変)。"
+        "λ>0 で soft-Dice の FP 項に距離重み w=1+λ·tanh(d/τ) を掛け、GT 前景から遠い"
+        "誤検出を強く罰する（例: 5 や 10）。EDT は学習サブセットの GT から前計算。",
+    )
+    parser.add_argument(
+        "--dw-loss-tau-frac",
+        type=float,
+        default=DW_TAU_FRAC,
+        help="DWD 罰が飽和する特性距離 τ=画像対角長×frac（既定 0.1, スケール不変）。"
+        "評価指標 dwdice の τ と揃えるのが自然。",
     )
     parser.add_argument("--pretrained", default="uniconvnet_t_1k_224_ema.pth")
     parser.add_argument("--save-dir", default="")
@@ -587,14 +605,91 @@ class MultiClassDiceLoss(nn.Module):
         return 1.0 - dice[1:].mean()
 
 
+class _TrainWithPhi(torch.utils.data.Dataset):
+    """学習サブセットに、GT から前計算した距離重み素 φ を第3要素として付ける薄いラッパ。
+
+    __getitem__ が (img, mask) → (img, mask, phi) を返す。φ は前景 12 クラス分の
+    (12,H,W) float32（tanh(EDT/τ)）で、DWD-loss の FP 距離重み w=1+λ·φ に使う。
+
+    * **学習サブセットだけ**に被せる → val split・random_split の分割・他の評価
+      スクリプト（img,gt でアンパック）を一切変えない。
+    * aug 有効時は AugmentedScintiDataset の**外側**に被せるので、φ は幾何変換
+      （回転/反転で左右クラス swap 済み）後の mask から計算され GT と整合する。
+    * EDT は torch 非依存 → DataLoader ワーカ（CPU 並列）で計算し GPU 学習に前送り。
+    """
+
+    def __init__(self, base, num_classes=13, tau_frac=DW_TAU_FRAC):
+        self.base = base
+        self.num_classes = num_classes
+        self.tau_frac = tau_frac
+
+    def __len__(self):
+        return len(self.base)
+
+    def __getitem__(self, idx):
+        img, mask = self.base[idx]
+        phi = distance_phi_stack(
+            mask.numpy(), num_classes=self.num_classes, tau_frac=self.tau_frac
+        )
+        return img, mask, torch.from_numpy(phi)
+
+
+class MultiClassDWDLoss(nn.Module):
+    """距離重み付き Dice（DWD）の微分可能 soft-loss。
+
+    標準 soft-Dice の FP 項に、GT 前景からの距離重み w=1+λ·φ を掛けて「臓器から遠い
+    誤検出(FP)ほど強く罰する」。評価指標 metrics.distance_weighted_dice の学習版:
+
+        DWD = 2·TP / (2·TP + Σ p·(1-g)·(1+λ·φ) + FN)
+        φ   = tanh(d/τ) は GT から前計算（distance_phi_stack, 前景 12 クラス分）。
+
+    λ=0 or phi=None のとき標準 soft-Dice に一致（FP 重みが一律 1）。背景(0)を除く
+    12 部位平均の 1-DWD を返す（MultiClassDiceLoss と同じ規約）。
+    """
+
+    def __init__(self, num_classes=13, smooth=1e-5, dw_lambda=0.0):
+        super().__init__()
+        self.num_classes = num_classes
+        self.smooth = smooth
+        self.dw_lambda = float(dw_lambda)
+
+    def forward(self, outputs, targets, phi=None):
+        probs = torch.softmax(outputs, dim=1)
+        onehot = F.one_hot(targets, num_classes=self.num_classes)
+        onehot = onehot.permute(0, 3, 1, 2).float()
+        # 背景(0)を除く前景 12 クラスのみで評価（phi も前景 12 クラス分）
+        p = probs[:, 1:]
+        g = onehot[:, 1:]
+        tp = (p * g).sum(dim=(0, 2, 3))
+        fn = ((1.0 - p) * g).sum(dim=(0, 2, 3))
+        if self.dw_lambda > 0 and phi is not None:
+            w = 1.0 + self.dw_lambda * phi  # (B,12,H,W) 遠い FP ほど大
+            fp = (p * (1.0 - g) * w).sum(dim=(0, 2, 3))
+        else:
+            fp = (p * (1.0 - g)).sum(dim=(0, 2, 3))  # λ=0 → 標準 Dice
+        dwd = (2.0 * tp + self.smooth) / (2.0 * tp + fp + fn + self.smooth)
+        return 1.0 - dwd.mean()
+
+
 class CombinedLoss(nn.Module):
-    def __init__(self, num_classes=13):
+    def __init__(self, num_classes=13, dw_lambda=0.0):
         super().__init__()
         self.ce = nn.CrossEntropyLoss()
+        # dw_lambda=0 のときは従来の MultiClassDiceLoss を使う（既存 run と数値完全一致）。
+        # dw_lambda>0 のときだけ距離重み付き DWD-loss に切り替える。
+        self.dw_lambda = float(dw_lambda)
         self.dice = MultiClassDiceLoss(num_classes=num_classes)
+        self.dwd = (
+            MultiClassDWDLoss(num_classes=num_classes, dw_lambda=dw_lambda)
+            if dw_lambda > 0
+            else None
+        )
 
-    def forward(self, outputs, targets):
-        return self.ce(outputs, targets) + self.dice(outputs, targets)
+    def forward(self, outputs, targets, phi=None):
+        ce = self.ce(outputs, targets)
+        if self.dwd is not None:
+            return ce + self.dwd(outputs, targets, phi)
+        return ce + self.dice(outputs, targets)
 
 
 def train_net(args=None):
@@ -656,7 +751,17 @@ def train_net(args=None):
             f"gamma=±{args.aug_gamma} bright=±{args.aug_brightness} noise={args.aug_noise}"
         )
 
-    # 💡 4枚のGPUにデータを配るため、バッチサイズを4倍（16 × 4 = 64）に引き上げます！
+    # DWD 学習ロス有効時のみ、学習サブセットに距離重み素 φ を付ける（val/分割は不変）。
+    # aug の外側に被せるので φ は幾何変換後の mask と整合する。
+    if args.dw_loss_lambda > 0:
+        train_dataset = _TrainWithPhi(
+            train_dataset, num_classes=13, tau_frac=args.dw_loss_tau_frac
+        )
+        print(
+            f"📏 DWD 学習ロス ON | λ={args.dw_loss_lambda} τ=対角長×{args.dw_loss_tau_frac} "
+            "(臓器から遠い FP を分母で重く罰する。φ=tanh(EDT/τ) を GT から前計算)"
+        )
+
     train_loader = DataLoader(
         train_dataset,
         batch_size=args.batch_size,
@@ -848,7 +953,7 @@ def train_net(args=None):
             f"target_spread={args.erf_target_spread}"
         )
 
-    criterion = CombinedLoss(num_classes=13)
+    criterion = CombinedLoss(num_classes=13, dw_lambda=args.dw_loss_lambda)
     optimizer = build_optimizer(model, args)
 
     # 🔥 アーリーストップ用の設定
@@ -898,11 +1003,18 @@ def train_net(args=None):
                 caps = [round(float(m.sigma_cap), 2) for m in spectral_mods[:4]]
                 print(f"   σ-cap @ep{epoch}: {caps} ...")
         train_loss = 0.0
-        for images, masks in train_loader:
+        for batch in train_loader:
+            # DWD ロス有効時は (img, mask, phi)、それ以外は (img, mask)。
+            if len(batch) == 3:
+                images, masks, phi = batch
+                phi = phi.to(device)
+            else:
+                images, masks = batch
+                phi = None
             images, masks = images.to(device), masks.to(device)
             optimizer.zero_grad()
             outputs = model(images)
-            loss = criterion(outputs, masks)
+            loss = criterion(outputs, masks, phi)
 
             # ERF 正則化: 学習可能 dilation を目標 RF 広がりへ寄せる
             if args.erf_reg_weight > 0:

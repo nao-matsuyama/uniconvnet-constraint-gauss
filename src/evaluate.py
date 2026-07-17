@@ -70,6 +70,9 @@ def evaluate_model(
     nsd_taus=(1.0, 2.0, 3.0),
     worst_fracs=(0.1, 0.25),
     view="both",
+    dwdice=True,
+    dw_lambdas=M.DW_LAMBDAS,
+    dw_tau_frac=M.DW_TAU_FRAC,
 ):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"評価デバイス: {device}")
@@ -87,7 +90,9 @@ def evaluate_model(
     val, loader = build_val_loader(data_dir, batch_size, num_workers, view=view)
     print(f"バリデーションサンプル数: {len(val)}")
 
-    names = M.metric_list(nsd_taus=nsd_taus, boundary=boundary)
+    names = M.metric_list(
+        nsd_taus=nsd_taus, boundary=boundary, dwdice=dwdice, dw_lambdas=dw_lambdas
+    )
 
     sample_results = []  # [(fname, M.sample_metrics(...))]
     print("🔍 評価を開始します...")
@@ -105,6 +110,9 @@ def evaluate_model(
                     spacing=spacing,
                     nsd_taus=nsd_taus,
                     boundary=boundary,
+                    dwdice=dwdice,
+                    dw_lambdas=dw_lambdas,
+                    dw_tau_frac=dw_tau_frac,
                 )
                 gidx = val.indices[gi]
                 fname = os.path.basename(val.dataset.image_files[gidx])
@@ -158,6 +166,22 @@ if __name__ == "__main__":
         default="both",
         help="評価するビュー。学習時と揃えること (anterior 学習なら anterior で評価)。",
     )
+    parser.add_argument(
+        "--no-dwdice", action="store_true", help="距離重み付き Dice(dwdice@λ)をスキップ"
+    )
+    parser.add_argument(
+        "--dw-lambdas",
+        type=float,
+        nargs="+",
+        default=list(M.DW_LAMBDAS),
+        help="dwdice の罰の強さ λ（複数指定で一括スイープ, 既定 5）",
+    )
+    parser.add_argument(
+        "--dw-tau-frac",
+        type=float,
+        default=M.DW_TAU_FRAC,
+        help="dwdice の飽和距離 τ を対角長の割合で指定（既定 0.1）",
+    )
     args = parser.parse_args()
 
     evaluate_model(
@@ -171,4 +195,7 @@ if __name__ == "__main__":
         nsd_taus=tuple(args.nsd_taus),
         worst_fracs=tuple(args.worst_fracs),
         view=args.view,
+        dwdice=not args.no_dwdice,
+        dw_lambdas=tuple(args.dw_lambdas),
+        dw_tau_frac=args.dw_tau_frac,
     )
