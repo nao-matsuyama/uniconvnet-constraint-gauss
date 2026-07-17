@@ -618,19 +618,46 @@ class _TrainWithPhi(torch.utils.data.Dataset):
     * EDT は torch 非依存 → DataLoader ワーカ（CPU 並列）で計算し GPU 学習に前送り。
     """
 
-    def __init__(self, base, num_classes=13, tau_frac=DW_TAU_FRAC):
+    def __init__(self, base, num_classes=13, tau_frac=DW_TAU_FRAC, cache_dir=None):
         self.base = base
         self.num_classes = num_classes
         self.tau_frac = tau_frac
+        # cache_dir!=None のとき φ を fp16 でディスクキャッシュ（初回だけ EDT 計算 →
+        # 以降ロード）。aug 無し(mask 不変)のときのみ有効化する。φ は fp16 で返すので
+        # DataLoader の shm 使用も半減（loss 側で p.dtype に上げる）。
+        self.cache_dir = cache_dir
+        if cache_dir:
+            os.makedirs(cache_dir, exist_ok=True)
 
     def __len__(self):
         return len(self.base)
 
+    def _cache_path(self, idx):
+        # 元サンプルのファイル名で安定キー（seed/split 非依存, λ 間でも共有可）。
+        try:
+            g = self.base.indices[idx]
+            stem = os.path.splitext(
+                os.path.basename(self.base.dataset.bone_files[g])
+            )[0]
+        except Exception:
+            return None
+        return os.path.join(self.cache_dir, f"{stem}_tau{self.tau_frac:g}.npy")
+
     def __getitem__(self, idx):
         img, mask = self.base[idx]
-        phi = distance_phi_stack(
-            mask.numpy(), num_classes=self.num_classes, tau_frac=self.tau_frac
-        )
+        cp = self._cache_path(idx) if self.cache_dir else None
+        if cp is not None and os.path.exists(cp):
+            phi = np.load(cp)  # fp16
+        else:
+            phi = distance_phi_stack(
+                mask.numpy(), num_classes=self.num_classes, tau_frac=self.tau_frac
+            ).astype(np.float16)
+            if cp is not None:
+                # np.save は .npy を自動付与するので tmp も .npy 終端にする。
+                # pid 別 tmp → os.replace で原子的に置換（並列 λ ジョブでも安全）。
+                tmp = f"{cp}.{os.getpid()}.tmp.npy"
+                np.save(tmp, phi)
+                os.replace(tmp, cp)
         return img, mask, torch.from_numpy(phi)
 
 
@@ -663,6 +690,7 @@ class MultiClassDWDLoss(nn.Module):
         tp = (p * g).sum(dim=(0, 2, 3))
         fn = ((1.0 - p) * g).sum(dim=(0, 2, 3))
         if self.dw_lambda > 0 and phi is not None:
+            phi = phi.to(p.dtype)  # φ は fp16 で来る（shm 半減）→ 計算前に上げる
             w = 1.0 + self.dw_lambda * phi  # (B,12,H,W) 遠い FP ほど大
             fp = (p * (1.0 - g) * w).sum(dim=(0, 2, 3))
         else:
@@ -752,14 +780,21 @@ def train_net(args=None):
         )
 
     # DWD 学習ロス有効時のみ、学習サブセットに距離重み素 φ を付ける（val/分割は不変）。
-    # aug の外側に被せるので φ は幾何変換後の mask と整合する。
+    # aug の外側に被せるので φ は幾何変換後の mask と整合する。aug 無しなら mask は
+    # 毎エポック不変なので φ を fp16 でディスクキャッシュ（初回だけ EDT 計算 → 以降ロード）
+    # ＝ dataloader 律速と shm 圧迫を解消。aug 有りは mask が変わるのでキャッシュ無効。
     if args.dw_loss_lambda > 0:
+        phi_cache = None if args.aug else os.path.join("experiments", ".phi_cache")
         train_dataset = _TrainWithPhi(
-            train_dataset, num_classes=13, tau_frac=args.dw_loss_tau_frac
+            train_dataset,
+            num_classes=13,
+            tau_frac=args.dw_loss_tau_frac,
+            cache_dir=phi_cache,
         )
         print(
             f"📏 DWD 学習ロス ON | λ={args.dw_loss_lambda} τ=対角長×{args.dw_loss_tau_frac} "
-            "(臓器から遠い FP を分母で重く罰する。φ=tanh(EDT/τ) を GT から前計算)"
+            f"(臓器から遠い FP を分母で重く罰する。φ=tanh(EDT/τ) を GT から前計算"
+            + (f", fp16 ディスクキャッシュ {phi_cache})" if phi_cache else ", キャッシュ無効/aug)")
         )
 
     train_loader = DataLoader(
